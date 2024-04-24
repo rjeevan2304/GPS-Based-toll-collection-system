@@ -1,0 +1,80 @@
+import cv2
+import pytesseract
+import gps
+import time
+import socket
+
+# Add the fare calculation function here
+def calculate_fare(distance, time, rate):
+    return distance * rate + time * rate * 0.5
+
+class PlateRecognizer:
+    def __init__(self):
+        self.pytesseract_path = r"/path/to/pytesseract"  # Set the path to the pytesseract executable
+        self.font_path = r"/path/to/font"  # Set the path to the font file
+
+    def recognize(self, image):
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+        thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
+        contours = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contours = contours[0] if len(contours) == 2 else contours[1]
+        plates = []
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            if h < 20 or w < 50 or w > 2 * h:
+                continue
+            plate = gray[y:y+h, x:x+w]
+            plate = cv2.resize(plate, (400, 100))
+            config = ("-l eng --oem 1 --psm 7")
+            text = pytesseract.image_to_string(plate, config=config)
+            text = text.replace("\n", "").replace(" ", "")
+            if len(text) == 6 and text.isalpha():
+                plates.append(text)
+        return plates
+
+class GPS:
+    def __init__(self):
+        self.client = gps.gps(mode=gps.WATCH_ENABLE)
+
+    def get_location(self):
+        report = self.client.next()
+        if report:
+            lat = report.latitude
+            lon = report.longitude
+            return (lat, lon)
+        return None
+
+class SatelliteClient:
+    def send(self, plate_text, speed, fare):
+        # Assume this function sends the data to a satellite
+        # This is a placeholder and does not include actual implementation
+        print(f"Sending data to satellite: Plate={plate_text}, Speed={speed}, Fare=₹{fare}")
+
+class SpeedCameraSystem:
+    def __init__(self, rate):
+        self.gps = GPS()
+        self.prev_location = None
+        self.prev_time = None
+        self.camera = cv2.VideoCapture(0)  # Use 0 for default camera
+        self.plate_recognizer = PlateRecognizer()
+        self.satellite_client = SatelliteClient()
+        self.rate = rate  # Set the rate for fare calculation
+
+    def capture_image(self):
+        ret, frame = self.camera.read()
+        return frame
+
+    def recognize_plate(self, image):
+        plates = self.plate_recognizer.recognize(image)
+        return plates
+
+    def calculate_distance(self, current_location, current_time):
+        if self.prev_location and self.prev_time:
+            distance = gps.distance(self.prev_location, current_location)
+            time_diff = current_time - self.prev_time
+            speed = distance / time_diff
+            return distance, time_diff, speed
+        return None
+
+    def send_to_satellite(self, plate_text, speed, distance, time_diff):
